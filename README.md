@@ -67,6 +67,9 @@ One useful feature of XDRPP is that is can trace and pretty-print RPC calls if
 the following environment variables are set.
 $ export XDR_TRACE_CLIENT=XDR_TRACE_SERVER=1
 
+For more details on the design of this project, refer to 
+https://github.com/pkvijay/metaDR/blob/master/Design.docx 
+
 References :
 
 [1] Viewstamped Replication Revisited
