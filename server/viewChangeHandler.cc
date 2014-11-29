@@ -8,20 +8,24 @@ namespace vr {
 
 #define VIEW_START_REQ_TIMEOUT 4000 // in ms
 #define VIEW_CHANGE_COMPLETION_TIMEOUT 8000 // in ms
+#define VIEW_NUM_INCREMENT_TIMEOUT 2000 //ms
 
-/*
- * Caller need to make sure that the Replicator is locked down
- * throughout the view change process.
- * Replicator should not process any requests until the status changes to
- * normal.
- */
 void
 ViewChangeHandler::changeView()
 {
+   lock_guard<recursive_mutex> lg(_repMutex);
    cout << "changeView called by replicaId : " << _replicaId << endl;
    _replicaState.status(VIEW_CHANGE);
    ViewInt oldViewNum = _replicaState.viewNum();
    ViewInt newViewNum = _replicaState.incrementViewNum();
+   {
+      lock_guard<recursive_mutex> lg(_viewChangeMutex);
+      if (_viewStartInfoMap.find(newViewNum) !=
+          _viewStartInfoMap.end()) {
+         updateNewView(newViewNum, false);
+         return;
+      }
+   }
    ViewChangeRequest viewChangeReq;
    viewChangeReq.viewNum = newViewNum;
    viewChangeReq.replicaId = _replicaId;
@@ -73,7 +77,7 @@ ViewChangeHandler::changeView()
    }
    unsigned cnt = 0;
    ReplicaId newPriId = getNextPrimaryCandidate(_replicaState.priId());
-   while (newPriId != _replicaId && 
+   while (newPriId != _replicaId &&
           !invokeDoViewChange(_replicas[newPriId], viewChangeInfo)) {
       if (++cnt == _replicas.size() - 1) {
          cerr << "Failed to invoke DoViewChange to any replica" << endl;
@@ -82,7 +86,7 @@ ViewChangeHandler::changeView()
       newPriId = getNextPrimaryCandidate(newPriId);
    }
 
-   {
+   if (newPriId == _replicaId) {
       unique_lock<recursive_mutex> lg(viewChangeResp->rMutex);
       if (!quorumReached(viewChangeResp)) {
          cout << "Resp cnt : " << viewChangeResp->cnt << endl;
@@ -90,24 +94,29 @@ ViewChangeHandler::changeView()
             viewChangeResp->cond.wait_for(lg,
                chrono::milliseconds(VIEW_CHANGE_COMPLETION_TIMEOUT));
          if (status == cv_status::timeout) {
-            cerr << "Timed out for view change to complete to new vieNum,  "
-                 << newViewNum << endl;
+            cerr << "Primary timed out for view change to complete to new "
+                 << "vieNum, " << newViewNum << endl;
             return;
-         } 
+         }
       }
-      if (newPriId == _replicaId && quorumReached(viewChangeResp)) {
-         updateNewView(newViewNum);
-      }
+      assert (quorumReached(viewChangeResp));
+      updateNewView(newViewNum, true);
    }
-
-   // Cleanup 
-   {
-      lock_guard<recursive_mutex> lg(_viewChangeMutex);
-      if (_replicaState.status() == NORMAL) {
-         _viewStartReqMap.clear();
-         _doViewChangeMap.clear();
-         _viewChangeInfoMap.clear();
+   else {
+      shared_ptr<Response> newViewResp = _startViewMap.get(newViewNum);
+      unique_lock<recursive_mutex> lg(newViewResp->rMutex);
+      if (newViewResp->cnt != 1) {
+         cv_status status =
+            newViewResp->cond.wait_for(lg,
+               chrono::milliseconds(VIEW_CHANGE_COMPLETION_TIMEOUT));
+         if (status == cv_status::timeout) {
+            cerr << "Backup timed out for view change to complete to new "
+                 << "vieNum, " << newViewNum << endl;
+            return;
+         }
       }
+      assert(newViewResp->cnt == 1);
+      updateNewView(newViewNum, false);
    }
 }
 
@@ -176,73 +185,79 @@ ViewChangeHandler::processStartView(unique_ptr<ViewStartInfo> viewStartInfo)
    cout << "processStartView called for viewNum : " << viewStartInfo->viewNum
         << endl;
    if (_replicaState.viewNum() > viewStartInfo->viewNum) {
-      return; 
+      return;
    }
+   ViewInt newViewNum = viewStartInfo->viewNum;
    if (_replicaState.status() != VIEW_CHANGE) {
-      cout << "Replica state is not VIEW_CHANGE. Ignoring the viewStartInfo "
-           << "for viewNum : " << viewStartInfo->viewNum << endl;
+      cout << "Replica state is not VIEW_CHANGE. Changing the status." << endl;
+      _replicaState.status(VIEW_CHANGE);
    }
-   //TODO: assert replicator is locked down
-   _replicaState.priId(viewStartInfo->replicaId);
-   _replicaState.viewNum(viewStartInfo->viewNum);
-   _replicaState.opNum(viewStartInfo->opNum);
-   _replicaState.commitNum(viewStartInfo->commitNum);
-   _logHandler->setLog(viewStartInfo->opLog);
-   _replicaState.lastCommitTime(chrono::system_clock::now());
-   /*
-    * status should be set to normal, after all the above is done, to avoid
-    * the new primary's heart-beat thread to send wrong commitInfo details.
-    */
-   _replicaState.status(NORMAL);
 
-   shared_ptr<Response> resp =
-         _doViewChangeMap.get(viewStartInfo->viewNum);
-   bool notify = false;
+   {
+      lock_guard<recursive_mutex> lg(_viewChangeMutex);
+      assert(_viewStartInfoMap.find(newViewNum) ==
+             _viewStartInfoMap.end());
+      _viewStartInfoMap[viewStartInfo->viewNum] = move(viewStartInfo);
+   }
+   shared_ptr<Response> resp = _startViewMap.get(newViewNum);
    {
       lock_guard<recursive_mutex> lg(resp->rMutex);
       ++resp->cnt;
-      notify = quorumReached(resp);
-
+      assert(resp->cnt == 1);
    }
-   if (notify) {
-      resp->cond.notify_one();
-   }
-   cout << "Replica state changed to normal. New view num : "
-        << _replicaState.viewNum() << ", new pri replicaId : "
-        << _replicaState.priId() << endl;
+   resp->cond.notify_one();
 }
 
 void
-ViewChangeHandler::updateNewView(ViewInt viewNum)
+ViewChangeHandler::updateNewView(ViewInt viewNum, bool isPrimary)
 {
    lock_guard<recursive_mutex> lg(_viewChangeMutex);
-   vector<ViewChangeInfo>& vcInfos =
-      _viewChangeInfoMap[viewNum];
-   assert(vcInfos.size() >= getMajorityCnt());
-   size_t candidateViewChangeIdx = 0;
-   ViewInt highestOldViewNum = vcInfos.at(0).oldViewNum;
-   ViewInt highestOpNum = vcInfos.at(0).opNum;
-   for (size_t i = 1; i < vcInfos.size(); ++i) {
-      ViewInt oldViewNum = vcInfos.at(i).oldViewNum;
-      OpInt opNum = vcInfos.at(i).opNum;
-      if (oldViewNum == highestOldViewNum) {
-         if (opNum > highestOpNum) {
+   ViewStartInfo viewStartInfo;
+   if (isPrimary) {
+      vector<ViewChangeInfo>& vcInfos =
+         _viewChangeInfoMap[viewNum];
+      assert(vcInfos.size() >= getMajorityCnt());
+      size_t candidateViewChangeIdx = 0;
+      ViewInt highestOldViewNum = vcInfos.at(0).oldViewNum;
+      ViewInt highestOpNum = vcInfos.at(0).opNum;
+      for (size_t i = 1; i < vcInfos.size(); ++i) {
+         ViewInt oldViewNum = vcInfos.at(i).oldViewNum;
+         OpInt opNum = vcInfos.at(i).opNum;
+         if (oldViewNum == highestOldViewNum) {
+            if (opNum > highestOpNum) {
+               candidateViewChangeIdx = i;
+               highestOpNum = opNum;
+            }
+         }
+         else if (oldViewNum > highestOldViewNum) {
             candidateViewChangeIdx = i;
-            highestOpNum = opNum;
+            highestOldViewNum = oldViewNum;
          }
       }
-      else if (oldViewNum > highestOldViewNum) {
-         candidateViewChangeIdx = i;
-         highestOldViewNum = oldViewNum;
-      }
+      const ViewChangeInfo& candidateVcInfo =
+         vcInfos.at(candidateViewChangeIdx);
+      _replicaState.priId(_replicaId);
+      _replicaState.viewNum(candidateVcInfo.viewNum);
+      _replicaState.opNum(candidateVcInfo.opNum);
+      _replicaState.commitNum(candidateVcInfo.commitNum);
+      _logHandler->setLog(candidateVcInfo.opLog);
+
+      viewStartInfo.viewNum = candidateVcInfo.viewNum;
+      viewStartInfo.opLog = _logHandler->getLog();
+      viewStartInfo.opNum = candidateVcInfo.opNum;
+      viewStartInfo.commitNum = candidateVcInfo.commitNum;
+      viewStartInfo.replicaId = _replicaId;
    }
-   const ViewChangeInfo& candidateVcInfo =
-      vcInfos.at(candidateViewChangeIdx);
-   _replicaState.priId(_replicaId);
-   _replicaState.viewNum(candidateVcInfo.viewNum);
-   _replicaState.opNum(candidateVcInfo.opNum);
-   _replicaState.commitNum(candidateVcInfo.commitNum);
-   _logHandler->setLog(candidateVcInfo.opLog);
+   else {
+      const unique_ptr<ViewStartInfo>& viewStartInfo =
+         _viewStartInfoMap[viewNum];
+      assert(viewStartInfo->viewNum == viewNum);
+      _replicaState.priId(viewStartInfo->replicaId);
+      _replicaState.viewNum(viewStartInfo->viewNum);
+      _replicaState.opNum(viewStartInfo->opNum);
+      _replicaState.commitNum(viewStartInfo->commitNum);
+      _logHandler->setLog(viewStartInfo->opLog);
+   }
    _replicaState.lastCommitTime(chrono::system_clock::now());
    /*
     * status should be set to normal, after all the above is done, to avoid
@@ -254,15 +269,13 @@ ViewChangeHandler::updateNewView(ViewInt viewNum)
         << _replicaState.viewNum() << ", new pri replicaId : "
         << _replicaState.priId() << endl;
 
-   ViewStartInfo viewStartInfo;
-   viewStartInfo.viewNum = candidateVcInfo.viewNum;
-   viewStartInfo.opLog = _logHandler->getLog();
-   viewStartInfo.opNum = candidateVcInfo.opNum;
-   viewStartInfo.commitNum = candidateVcInfo.commitNum;
-   viewStartInfo.replicaId = _replicaId;
-   invokeForAllReplicas(_replicaId, this,
-                        &ViewChangeHandler::invokeStartView,
-                        viewStartInfo);
+   if (isPrimary) {
+      assert(viewStartInfo.viewNum == viewNum);
+      invokeForAllReplicas(_replicaId, this,
+                           &ViewChangeHandler::invokeStartView,
+                           viewStartInfo);
+   }
+   cleanUp();
 }
 
 void
@@ -344,6 +357,19 @@ ViewChangeHandler::getViewChangeClient(const EndPoint& ep)
       cw = shared_ptr<ViewChangeClWrapper>(new ViewChangeClWrapper(ep));
    }
    return cw;
+}
+
+void
+ViewChangeHandler::cleanUp()
+{
+   lock_guard<recursive_mutex> lg(_viewChangeMutex);
+   if (_replicaState.status() == NORMAL) {
+      _viewStartReqMap.clear();
+      _doViewChangeMap.clear();
+      _viewChangeInfoMap.clear();
+      _startViewMap.clear();
+      _viewStartInfoMap.clear();
+   }
 }
 
 } //namespace vr

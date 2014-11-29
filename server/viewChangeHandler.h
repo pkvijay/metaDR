@@ -17,9 +17,11 @@ class ViewChangeHandler {
 public:
    ViewChangeHandler(ReplicaId id,
                      std::unordered_map<ReplicaId, EndPoint>& replicas,
-                     IOpLogHandler* logHandler, ReplicaState& repState)
+                     IOpLogHandler* logHandler, ReplicaState& repState,
+                     std::recursive_mutex& repMutex)
                         : _replicaId(id), _replicas(replicas),
-                          _logHandler(logHandler), _replicaState(repState) {}
+                          _logHandler(logHandler), _replicaState(repState),
+                          _repMutex(repMutex) {}
 
    void changeView();
 
@@ -30,7 +32,7 @@ public:
    void processStartView(std::unique_ptr<ViewStartInfo> viewStartInfo);
 
 private:
-   void updateNewView(ViewInt viewNum);
+   void updateNewView(ViewInt viewNum, bool isPrimary);
 
    void invokeStartViewChange(const EndPoint& ep,
                               const ViewChangeRequest& viewChangeReq);
@@ -45,10 +47,13 @@ private:
    using ViewChangeClWrapper = ClientWrapper<ViewChangeClient>;
    std::shared_ptr<ViewChangeClWrapper> getViewChangeClient(const EndPoint& ep);
 
+   void cleanUp();
+
    ReplicaId _replicaId;
    std::unordered_map<ReplicaId, EndPoint>& _replicas;
    IOpLogHandler* _logHandler;
    ReplicaState& _replicaState;
+   std::recursive_mutex& _repMutex;
    WaitMap<ViewInt> _viewStartReqMap;
    WaitMap<ViewInt> _doViewChangeMap;
    std::unordered_map<std::string,
@@ -58,6 +63,11 @@ private:
 
    //TODO use unique_ptr<ViewChangeInfo> in the vector
    std::unordered_map<ViewInt, std::vector<ViewChangeInfo>> _viewChangeInfoMap;
+
+   WaitMap<ViewInt> _startViewMap;
+   std::unordered_map<ViewInt,
+                      std::unique_ptr<ViewStartInfo>> _viewStartInfoMap;
+
 };
 
 } //namespace vr

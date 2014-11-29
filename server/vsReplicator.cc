@@ -16,8 +16,9 @@ VsReplicator::VsReplicator(ReplicaId id,
                            IOpLogHandler* logHandler)
                               : _id(id), _replicas(replicas),
                                 _logHandler(logHandler), _replicaState(),
+                                _repMutex(),
                                 _viewChangeHandler(_id, _replicas, _logHandler,
-                                                   _replicaState)
+                                                   _replicaState, _repMutex)
 {
     thread hbt(&VsReplicator::heartBeat, this);
    _hbt = move(hbt);
@@ -278,7 +279,15 @@ VsReplicator::heartBeat()
          if (elapsedSeconds.count() > HEART_BEAT_TIMEOUT) {
             cerr << "Heartbeat timed out : " << elapsedSeconds.count()
                  << " seconds" << endl;
-            lock_guard<recursive_mutex> lg(_repMutex);
+            _viewChangeHandler.changeView();
+         }
+         else if (_replicaState.status() == VIEW_CHANGE) {
+            /*
+             * This can happen only if new startView is received by the backup.
+             * Refer to ViewChangeHandler::processStartView
+             *
+             */
+            cout << "VIEW_CHANGE requested" << endl;
             _viewChangeHandler.changeView();
          }
       }

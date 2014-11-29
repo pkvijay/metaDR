@@ -59,12 +59,12 @@ private:
    std::unordered_map<ReplicaId, EndPoint>& _replicas;
    IOpLogHandler* _logHandler;
    ReplicaState _replicaState;
+   std::recursive_mutex _repMutex;
    ViewChangeHandler _viewChangeHandler;
    std::thread _hbt; // heart-beat thread
    std::thread _ppit; // process prepInfo thread
    CQueue<PrepInfo> _prepReqQ;
    WaitMap<OpInt> _waitMap;
-   std::recursive_mutex _repMutex;
    std::unordered_map<std::string,
                       std::shared_ptr<RepClientWrapper>> _clWrappers;
    std::recursive_mutex _repClientMutex;
