@@ -1,0 +1,3 @@
+[submodule "xdrpp"]
+	path = xdrpp
+	url = http://cs244b.scs.stanford.edu/labs/xdrpp.git

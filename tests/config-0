@@ -1,0 +1,5 @@
+# Test config file
+
+ClientPort = 4004
+ReplicationPort = 5008
+EndPoints = localhost:5008,localhost:5010,localhost:5012,localhost:5014,localhost:5016

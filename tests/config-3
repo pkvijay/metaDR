@@ -1,0 +1,3 @@
+ClientPort = 4010
+ReplicationPort = 5014
+EndPoints = localhost:5008,localhost:5010,localhost:5012,localhost:5014,localhost:5016
