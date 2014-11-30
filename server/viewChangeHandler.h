@@ -8,6 +8,7 @@
 #include "vrCommon.h"
 #include "viewChangeClient.h"
 #include "include/clientWrapper.h"
+#include "include/kvsCallback.h"
 
 #include <unordered_map>
 
@@ -21,7 +22,8 @@ public:
                      std::recursive_mutex& repMutex)
                         : _replicaId(id), _replicas(replicas),
                           _logHandler(logHandler), _replicaState(repState),
-                          _repMutex(repMutex) {}
+                          _repMutex(repMutex), _updateCb(nullptr),
+                          _deleteCb(nullptr) {}
 
    void changeView();
 
@@ -30,6 +32,9 @@ public:
 
    void processDoViewChange(std::unique_ptr<ViewChangeInfo> viewChangeinfo);
    void processStartView(std::unique_ptr<ViewStartInfo> viewStartInfo);
+
+   void registerUpdateCb(kvs::UpdateCbFunc cb) { _updateCb = cb; }
+   void registerDeleteCb(kvs::DeleteCbFunc cb) { _deleteCb = cb; }
 
 private:
    void updateNewView(ViewInt viewNum, bool isPrimary);
@@ -54,6 +59,8 @@ private:
    IOpLogHandler* _logHandler;
    ReplicaState& _replicaState;
    std::recursive_mutex& _repMutex;
+   kvs::UpdateCbFunc _updateCb;
+   kvs::DeleteCbFunc _deleteCb;
    WaitMap<ViewInt> _viewStartReqMap;
    WaitMap<ViewInt> _doViewChangeMap;
    std::unordered_map<std::string,

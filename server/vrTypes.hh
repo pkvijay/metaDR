@@ -67,6 +67,7 @@ struct LogEntry {
   kvs::KvPair kvPair{};
   OpType opType{};
   OpInt opNum{};
+  bool committed{};
 };
 } namespace xdr {
 template<> struct xdr_traits<::vr::LogEntry>
@@ -78,18 +79,23 @@ template<> struct xdr_traits<::vr::LogEntry>
                               &::vr::LogEntry::opType>,
                     field_ptr<::vr::LogEntry,
                               decltype(::vr::LogEntry::opNum),
-                              &::vr::LogEntry::opNum>> {
+                              &::vr::LogEntry::opNum>,
+                    field_ptr<::vr::LogEntry,
+                              decltype(::vr::LogEntry::committed),
+                              &::vr::LogEntry::committed>> {
   template<typename Archive> static void
   save(Archive &ar, const ::vr::LogEntry &obj) {
     archive(ar, obj.kvPair, "kvPair");
     archive(ar, obj.opType, "opType");
     archive(ar, obj.opNum, "opNum");
+    archive(ar, obj.committed, "committed");
   }
   template<typename Archive> static void
   load(Archive &ar, ::vr::LogEntry &obj) {
     archive(ar, obj.kvPair, "kvPair");
     archive(ar, obj.opType, "opType");
     archive(ar, obj.opNum, "opNum");
+    archive(ar, obj.committed, "committed");
   }
 };
 } namespace vr {

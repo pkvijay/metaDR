@@ -25,7 +25,10 @@ public:
 
    void replicateUpdate(const std::string& key, const std::string& val);
    void replicateDelete(const std::string& key);
-   bool isPrimary();
+   bool isPrimary() { return _id == _replicaState.priId(); }
+
+   void registerUpdateCb(kvs::UpdateCbFunc cb);
+   void registerDeleteCb(kvs::DeleteCbFunc cb);
 
    void processPrepare(std::unique_ptr<PrepInfo> prepInfo);
    void processPrepareOk(std::unique_ptr<PrepResponse> prepResponse);

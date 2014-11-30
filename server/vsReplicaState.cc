@@ -72,17 +72,7 @@ ReplicaState::commitNum(CommitInt commitNum_)
 {
    lock_guard<recursive_mutex> lg(rsMutex);
    _commitNum = commitNum_;
- //  _committedOps.insert(_commitNum);
 }
-
-/*
-bool
-ReplicaState::isCommitted(CommitInt commitNum)
-{
-   lock_guard<recursive_mutex> lg(rsMutex);
-   return (_committedOps.find(commitNum) != _committedOps.end());
-}
-*/
 
 ViewInt
 ReplicaState::incrementViewNum()

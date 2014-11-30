@@ -16,6 +16,8 @@ public:
    virtual LogEntry getLogEntry(OpInt opNum) = 0;
    virtual OpLog getLog() = 0;
    virtual void setLog(const OpLog& opLog) = 0;
+   virtual bool hasEntry(OpInt opNum) = 0;
+   virtual void commit(OpInt opNum) = 0;
 
    //TODO: Add log trimming interfaces
 };

@@ -17,6 +17,8 @@ public:
    LogEntry getLogEntry(OpInt opNum);
    OpLog getLog();
    void setLog(const OpLog& opLog);
+   bool hasEntry(OpInt opNum);
+   void commit(OpInt opNum);
 
 private:
    std::unordered_map<OpInt, LogEntry> _opLog;

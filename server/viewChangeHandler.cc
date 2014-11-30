@@ -213,6 +213,7 @@ ViewChangeHandler::updateNewView(ViewInt viewNum, bool isPrimary)
 {
    lock_guard<recursive_mutex> lg(_viewChangeMutex);
    ViewStartInfo viewStartInfo;
+   CommitInt oldCommitNum = _replicaState.commitNum();
    if (isPrimary) {
       vector<ViewChangeInfo>& vcInfos =
          _viewChangeInfoMap[viewNum];
@@ -257,6 +258,26 @@ ViewChangeHandler::updateNewView(ViewInt viewNum, bool isPrimary)
       _replicaState.opNum(viewStartInfo->opNum);
       _replicaState.commitNum(viewStartInfo->commitNum);
       _logHandler->setLog(viewStartInfo->opLog);
+   }
+   /*
+    * All committed entries upto oldCommitNum should have already been applied
+    * to the KV store.
+    */
+   assert(_logHandler->getLogEntry(oldCommitNum).committed == true);
+   for (OpInt i = oldCommitNum + 1; i < _logHandler->logSize(); ++i)
+   {
+      const LogEntry& entry = _logHandler->getLogEntry(i);
+      if (entry.committed) {
+         if (entry.opType == UPDATE) {
+            assert(_updateCb != nullptr);
+            _updateCb(entry.kvPair.key, entry.kvPair.val);
+         }
+         else {
+            assert(entry.opType == DELETE);
+            assert(_deleteCb != nullptr);
+            _deleteCb(entry.kvPair.key);
+         }
+      }
    }
    _replicaState.lastCommitTime(chrono::system_clock::now());
    /*

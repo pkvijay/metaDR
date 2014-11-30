@@ -70,7 +70,7 @@ KvMemStore::remove(const string& key) {
       cerr << errMsg << endl;
       throw runtime_error(errMsg);
    }
-   assert(_replicator->isPrimary()); 
+   assert(_replicator->isPrimary());
    _replicator->replicateDelete(key);
    cout << "Removing " << key << endl;
    kvMap.erase(it);

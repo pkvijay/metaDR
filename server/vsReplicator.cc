@@ -70,6 +70,20 @@ VsReplicator::replicateDelete(const string& key)
 }
 
 void
+VsReplicator::registerUpdateCb(UpdateCbFunc cb)
+{
+   _updateCb = cb;
+   _viewChangeHandler.registerUpdateCb(cb);
+}
+
+void
+VsReplicator::registerDeleteCb(DeleteCbFunc cb)
+{
+   _deleteCb = cb;
+   _viewChangeHandler.registerDeleteCb(cb);
+}
+
+void
 VsReplicator::replicate(const PrepInfo& prepInfo)
 {
    //TODO assert _repMutex is locked
@@ -102,6 +116,7 @@ VsReplicator::replicate(const PrepInfo& prepInfo)
          }
       }
    }
+   _logHandler->commit(prepInfo.opNum);
    _replicaState.commitNum(prepInfo.opNum);
    cout << "Committed opNum : " << prepInfo.opNum << endl;
    CommitInfo commitInfo;
@@ -109,10 +124,8 @@ VsReplicator::replicate(const PrepInfo& prepInfo)
    commitInfo.commitNum = prepInfo.opNum;
    invokeForAllReplicas(_id, this, &VsReplicator::invokeCommit,
                         commitInfo);
-   /*
-    *TODO: Handle the rollover logic, in case quorum not reached.
-    *      Clean up the _waitMap once the response is processed.
-    */
+   // Cleanup
+    _waitMap.erase(prepInfo.opNum);
 }
 
 void
@@ -184,8 +197,23 @@ VsReplicator::processCommit(unique_ptr<CommitInfo> commitInfo)
            << _replicaState.viewNum()  << ". Ignoring commit." << endl;
       return;
    }
+   if (commitInfo->commitNum > 0 &&
+       commitInfo->commitNum <= _replicaState.commitNum()) {
+      assert(_logHandler->getLogEntry(commitInfo->commitNum).committed);
+   }
    if (commitInfo->commitNum > _replicaState.commitNum()) {
+      /*
+       *TODO instead of assert below, perform a state transfer to obtain the
+       * missing commits.
+       */
+      assert(commitInfo->commitNum = _replicaState.commitNum() + 1);
       _replicaState.commitNum(commitInfo->commitNum);
+      if (!_logHandler->hasEntry(commitInfo->commitNum)) {
+         cout << "Operation, " << commitInfo->commitNum << ", not yet logged. "
+              << "Ignoring the commitInfo." << endl;
+         return;
+      }
+      _logHandler->commit(commitInfo->commitNum);
       const LogEntry& entry = _logHandler->getLogEntry(commitInfo->commitNum);
       if (entry.opType == UPDATE) {
          assert(_updateCb != nullptr);
@@ -197,12 +225,6 @@ VsReplicator::processCommit(unique_ptr<CommitInfo> commitInfo)
          _deleteCb(entry.kvPair.key);
       }
    }
-}
-
-bool
-VsReplicator::isPrimary()
-{
-   return (_id == _replicaState.priId());
 }
 
 void
@@ -270,6 +292,7 @@ VsReplicator::heartBeat()
          CommitInfo commitInfo;
          commitInfo.viewNum = _replicaState.viewNum();
          commitInfo.commitNum = _replicaState.commitNum();
+         cout << "Heartbeat commit num : " << commitInfo.commitNum << endl;
          invokeForAllReplicas(_id, this, &VsReplicator::invokeCommit,
                               commitInfo);
       }
@@ -320,6 +343,12 @@ VsReplicator::processPrepInfo()
       }
 
       lock_guard<recursive_mutex> lg(_repMutex);
+      /*
+       * TODO: Instead of assert below, perform a state transfer to obtain the
+       * missing ops
+       */
+      assert(prepInfo.opNum == _replicaState.opNum() + 1);
+      _replicaState.opNum(prepInfo.opNum);
       if (prepInfo.opType == UPDATE) {
          _logHandler->appendUpdate(prepInfo.kvPair, prepInfo.opNum);
       }
@@ -333,7 +362,11 @@ VsReplicator::processPrepInfo()
       prepResponse.replicaId = _id;
       const EndPoint& priEp = _replicas[_replicaState.priId()];
       invokePrepareOk(priEp, prepResponse);
-      // TODO: commit the commitNum from prepInfo
+      /*
+       * TODO: Need to decide if processCommit need to be called for
+       * prepInfo.commitNum. Since the primary would anyways periodically
+       * commit, this might not be needed.
+       */
    }
 }
 

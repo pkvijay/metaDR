@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "include/kvsCallback.h"
+
 namespace kvs {
 
 class IReplicator {
@@ -17,11 +19,8 @@ public:
 
    virtual ~IReplicator() {}
 
-   using UpdateCbFunc = void(*)(const std::string& key, const std::string& val);
-   using DeleteCbFunc = void(*)(const std::string& key);
-
-   void registerUpdateCb(UpdateCbFunc cb) { _updateCb = cb; }
-   void registerDeleteCb(DeleteCbFunc cb) { _deleteCb = cb; }
+   virtual void registerUpdateCb(UpdateCbFunc cb) { _updateCb = cb; }
+   virtual void registerDeleteCb(DeleteCbFunc cb) { _deleteCb = cb; }
 
 protected:
    UpdateCbFunc _updateCb;

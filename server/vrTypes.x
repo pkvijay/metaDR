@@ -21,6 +21,7 @@ namespace vr {
       kvs::KvPair kvPair;
       OpType opType;
       OpInt opNum;
+      bool committed;
    };
 
    typedef LogEntry OpLog<>;

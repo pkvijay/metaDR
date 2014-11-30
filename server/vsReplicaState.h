@@ -25,7 +25,6 @@ public:
    ViewInt viewNum();
    OpInt opNum();
    CommitInt commitNum();
-   //bool isCommitted(CommitInt commitNum);
    std::chrono::time_point<std::chrono::system_clock> lastCommitTime();
 
    void priId(ReplicaId priId_);
@@ -46,7 +45,6 @@ private:
    OpInt _opNum;
    CommitInt _commitNum;
    std::chrono::time_point<std::chrono::system_clock> _lastCommitTime;
-   //std::unordered_set<CommitInt> _committedOps;
    std::recursive_mutex rsMutex;
 };
 

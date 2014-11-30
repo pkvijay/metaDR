@@ -1,6 +1,7 @@
 #include "inMemOpLogHandler.h"
 
 #include <iostream>
+#include <cassert>
 
 using namespace std;
 using namespace kvs;
@@ -47,10 +48,7 @@ InMemOpLogHandler::getLogEntry(OpInt opNum)
 {
    lock_guard<recursive_mutex> lg(_logMutex);
    auto it = _opLog.find(opNum);
-   if (it == _opLog.end()) {
-      cerr << "LogEntry for opNum, " << opNum << ", not found" << endl;
-      throw runtime_error("LogEntry not found");
-   }
+   assert (it != _opLog.end());
    return it->second;
 }
 
@@ -77,6 +75,23 @@ InMemOpLogHandler::setLog(const OpLog& opLog)
       _opNums.push_back(opNum);
       _opLog[opNum] =  opLog.at(i);
    }
+}
+
+bool
+InMemOpLogHandler::hasEntry(OpInt opNum)
+{
+   lock_guard<recursive_mutex> lg(_logMutex);
+   return (_opLog.find(opNum) != _opLog.end());
+}
+
+void
+InMemOpLogHandler::commit(OpInt opNum)
+{
+   lock_guard<recursive_mutex> lg(_logMutex);
+   auto it = _opLog.find(opNum);
+   assert(it != _opLog.end());
+   LogEntry& entry = it->second;
+   entry.committed = true;
 }
 
 

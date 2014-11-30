@@ -75,6 +75,12 @@ public:
       _map.clear();
    }
 
+   void erase(const T& t)
+   {
+      std::lock_guard<std::mutex> lg(_mutex);
+      _map.erase(t);
+   }
+
 private:
    std::unordered_map<T, std::shared_ptr<Response>> _map;
    std::mutex _mutex;
