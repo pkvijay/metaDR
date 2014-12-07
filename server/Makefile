@@ -14,7 +14,10 @@ SERVER_SRC := server/server.cc \
            server/vrCommon.cc \
            server/viewChangeClient.cc \
            server/viewChangeImpl.cc \
-           server/viewChangeHandler.cc
+           server/viewChangeHandler.cc \
+           server/recoveryClient.cc \
+           server/recoveryImpl.cc \
+           server/recoveryHandler.cc
 
 SERVER_OBJ := $(SERVER_SRC:.c=.o)
 SERVER_OBJ := $(SERVER_OBJ:.cc=.o)

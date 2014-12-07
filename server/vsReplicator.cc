@@ -18,13 +18,10 @@ VsReplicator::VsReplicator(ReplicaId id,
                                 _logHandler(logHandler), _replicaState(),
                                 _repMutex(),
                                 _viewChangeHandler(_id, _replicas, _logHandler,
-                                                   _replicaState, _repMutex)
-{
-    thread hbt(&VsReplicator::heartBeat, this);
-   _hbt = move(hbt);
-   thread ppit(&VsReplicator::processPrepInfo, this);
-   _ppit = move(ppit);
-}
+                                                   _replicaState, _repMutex),
+                                _recoveryHandler(_id, _replicas, _logHandler,
+                                                 _replicaState, _repMutex)
+{}
 
 VsReplicator::~VsReplicator()
 {
@@ -34,7 +31,32 @@ VsReplicator::~VsReplicator()
 }
 
 void
+VsReplicator::start(bool recovering)
+{
+   // assert that start is not called twice
+   assert(!_hbt.joinable());
+   assert(!_ppit.joinable());
+
+   // assert that the callbacks are registered
+   assert(_updateCb != nullptr);
+   assert(_deleteCb != nullptr);
+
+   if (recovering) {
+      _replicaState.status(RECOVERING);
+   }
+
+   thread hbt(&VsReplicator::heartBeat, this);
+   _hbt = move(hbt);
+   thread ppit(&VsReplicator::processPrepInfo, this);
+   _ppit = move(ppit);
+}
+
+void
 VsReplicator::replicateUpdate(const string& key, const string& val) {
+   // assert that the replicator threads are running, i.e. start() is called
+   assert(_hbt.joinable());
+   assert(_ppit.joinable());
+
    lock_guard<recursive_mutex> lg(_repMutex);
    cout << "replicateUpdate called " << endl;
    assert(isPrimary());
@@ -54,6 +76,10 @@ VsReplicator::replicateUpdate(const string& key, const string& val) {
 void
 VsReplicator::replicateDelete(const string& key)
 {
+   // assert that the replicator threads are running, i.e. start() is called
+   assert(_hbt.joinable());
+   assert(_ppit.joinable());
+
    lock_guard<recursive_mutex> lg(_repMutex);
    cout << "replicateDelete called" << endl;
    assert(isPrimary());
@@ -74,6 +100,7 @@ VsReplicator::registerUpdateCb(UpdateCbFunc cb)
 {
    _updateCb = cb;
    _viewChangeHandler.registerUpdateCb(cb);
+   _recoveryHandler.registerUpdateCb(cb);
 }
 
 void
@@ -81,6 +108,7 @@ VsReplicator::registerDeleteCb(DeleteCbFunc cb)
 {
    _deleteCb = cb;
    _viewChangeHandler.registerDeleteCb(cb);
+   _recoveryHandler.registerDeleteCb(cb);
 }
 
 void
@@ -182,7 +210,6 @@ VsReplicator::processPrepareOk(unique_ptr<PrepResponse> prepResponse)
 void
 VsReplicator::processCommit(unique_ptr<CommitInfo> commitInfo)
 {
-   lock_guard<recursive_mutex> lg(_repMutex);
    cout << "ProcessCommit called for commitInfo->commitNum : "
         << commitInfo->commitNum << endl;
    _replicaState.lastCommitTime(chrono::system_clock::now());
@@ -190,6 +217,7 @@ VsReplicator::processCommit(unique_ptr<CommitInfo> commitInfo)
       cerr << "Replica state is not NORMAL. Ignoring commitInfo" << endl;
       return;
    }
+   lock_guard<recursive_mutex> lg(_repMutex);
    if (commitInfo->viewNum != _replicaState.viewNum()) {
       //TODO: if commitInfo->viewNum > _replicaState.viewNum do state transfer
       cerr << "commitInfo->viewNum : " << commitInfo->viewNum
@@ -207,12 +235,17 @@ VsReplicator::processCommit(unique_ptr<CommitInfo> commitInfo)
        * missing commits.
        */
       assert(commitInfo->commitNum = _replicaState.commitNum() + 1);
-      _replicaState.commitNum(commitInfo->commitNum);
+      /*
+       * TODO Its possible that processPrepInfo thread has not yet logged the op
+       * corresponding to this commitNum. In that case something better has to
+       * be done instead of ignoring the commit
+       */
       if (!_logHandler->hasEntry(commitInfo->commitNum)) {
          cout << "Operation, " << commitInfo->commitNum << ", not yet logged. "
               << "Ignoring the commitInfo." << endl;
          return;
       }
+      _replicaState.commitNum(commitInfo->commitNum);
       _logHandler->commit(commitInfo->commitNum);
       const LogEntry& entry = _logHandler->getLogEntry(commitInfo->commitNum);
       if (entry.opType == UPDATE) {
@@ -232,16 +265,20 @@ VsReplicator::invokePrepare(const EndPoint& ep, const PrepInfo& prepInfo)
 {
    lock_guard<recursive_mutex> lg(_repClientMutex);
    shared_ptr<RepClientWrapper> cw;
-   try {
-      cw = getRepClient(ep);
-      cw->client.prepare(prepInfo);
-   }
-   catch (const exception& ex) {
-      if (cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getRepClient(ep);
+         cw->client.prepare(prepInfo);
+         break;
       }
-      cerr << "Prepare to endpoint, " << ep
-           << " failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if (cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "Prepare to endpoint, " << ep
+              << " failed with exception, " << ex.what() << endl;
+      }
    }
 }
 
@@ -251,16 +288,20 @@ VsReplicator::invokePrepareOk(const EndPoint& ep,
 {
    lock_guard<recursive_mutex> lg(_repClientMutex);
    shared_ptr<RepClientWrapper> cw;
-   try {
-      cw = getRepClient(ep);
-      cw->client.prepareOk(prepResponse);
-   }
-   catch (const exception& ex) {
-      if(cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getRepClient(ep);
+         cw->client.prepareOk(prepResponse);
+         break;
       }
-      cerr << "PrepareOk to endpoint, " << ep
-           << " failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if(cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "PrepareOk to endpoint, " << ep
+              << " failed with exception, " << ex.what() << endl;
+      }
    }
 }
 
@@ -269,16 +310,20 @@ VsReplicator::invokeCommit(const EndPoint& ep, const CommitInfo& commitInfo)
 {
    lock_guard<recursive_mutex> lg(_repClientMutex);
    shared_ptr<RepClientWrapper> cw;
-   try {
-      cw = getRepClient(ep);
-      cw->client.commit(commitInfo);
-   }
-   catch (const exception& ex) {
-      if (cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getRepClient(ep);
+         cw->client.commit(commitInfo);
+         break;
       }
-      cerr << "Commit to endpoint, " << ep
-           << " failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if (cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "Commit to endpoint, " << ep
+              << " failed with exception, " << ex.what() << endl;
+      }
    }
 }
 
@@ -288,6 +333,9 @@ VsReplicator::heartBeat()
    cout << "heartBeat thread called for replica Id : " << _id
         << ", thread Id : " << this_thread::get_id() << endl;
    while (true) {
+      if (_replicaState.status() == RECOVERING) {
+         _recoveryHandler.recover();
+      }
       if (isPrimary() && _replicaState.status() == NORMAL) {
          CommitInfo commitInfo;
          commitInfo.viewNum = _replicaState.viewNum();
@@ -297,21 +345,27 @@ VsReplicator::heartBeat()
                               commitInfo);
       }
       else {
-         chrono::duration<double> elapsedSeconds =
-            chrono::system_clock::now() - _replicaState.lastCommitTime();
-         if (elapsedSeconds.count() > HEART_BEAT_TIMEOUT) {
-            cerr << "Heartbeat timed out : " << elapsedSeconds.count()
-                 << " seconds" << endl;
-            _viewChangeHandler.changeView();
-         }
-         else if (_replicaState.status() == VIEW_CHANGE) {
+         if (_replicaState.status() == VIEW_CHANGE) {
             /*
-             * This can happen only if new startView is received by the backup.
+             * This can happen only if new startView is received by the replica.
              * Refer to ViewChangeHandler::processStartView
              *
              */
             cout << "VIEW_CHANGE requested" << endl;
             _viewChangeHandler.changeView();
+         }
+         else {
+            chrono::duration<double> elapsedSeconds =
+               chrono::system_clock::now() - _replicaState.lastCommitTime();
+            if (elapsedSeconds.count() > HEART_BEAT_TIMEOUT) {
+               cerr << "Heartbeat timed out : " << elapsedSeconds.count()
+                    << " seconds" << endl;
+               _viewChangeHandler.changeView();
+               if (isPrimary() && _replicaState.status() == NORMAL) {
+                  // send an immediate heart-beat
+                  continue;
+               }
+            }
          }
       }
       chrono::milliseconds dura(HEART_BEAT_SLEEP);
@@ -322,13 +376,14 @@ VsReplicator::heartBeat()
 void
 VsReplicator::processPrepInfo()
 {
-   if (isPrimary()) {
-      return;
-   }
    cout << "processPrepInfo thread called for replica Id : " << _id
         << ", thread id : " << this_thread::get_id() << endl;
    while (true) {
       const PrepInfo& prepInfo = _prepReqQ.pop();
+      if (isPrimary()) {
+         //TODO: this should never happen
+         continue;
+      }
       if (_replicaState.status() != NORMAL) {
          cerr << "Replica state is not NORAML. Igoring preInfo processing"
               << endl;

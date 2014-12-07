@@ -305,16 +305,20 @@ ViewChangeHandler::invokeStartViewChange(const EndPoint& ep,
 {
    lock_guard<recursive_mutex> lg(_vcClientMutex);
    shared_ptr<ViewChangeClWrapper> cw;
-   try {
-      cw = getViewChangeClient(ep);
-      cw->client.startViewChange(viewChangeReq);
-   }
-   catch (const exception& ex) {
-      if (cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getViewChangeClient(ep);
+         cw->client.startViewChange(viewChangeReq);
+         break;
       }
-      cerr << "startViewChange to endpoint, " << ep
-           << ", failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if (cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "startViewChange to endpoint, " << ep
+              << ", failed with exception, " << ex.what() << endl;
+      }
    }
 }
 
@@ -322,20 +326,28 @@ bool
 ViewChangeHandler::invokeDoViewChange(const EndPoint& ep,
                                       const ViewChangeInfo& viewChangeInfo)
 {
+   /*
+    * TODO If this is primary replica and if there are majority doViewRequests
+    * then this replica should go through view-change to accept the new view.
+    */
    lock_guard<recursive_mutex> lg(_vcClientMutex);
    shared_ptr<ViewChangeClWrapper> cw;
    bool success = false;
-   try {
-      cw = getViewChangeClient(ep);
-      cw->client.doViewChange(viewChangeInfo);
-      success = true;
-   }
-   catch (const exception& ex) {
-      if (cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getViewChangeClient(ep);
+         cw->client.doViewChange(viewChangeInfo);
+         success = true;
+         break;
       }
-      cerr << "doViewChange to endpoint, " << ep
-           << ", failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if (cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "doViewChange to endpoint, " << ep
+              << ", failed with exception, " << ex.what() << endl;
+      }
    }
    return success;
 }
@@ -346,16 +358,20 @@ ViewChangeHandler::invokeStartView(const EndPoint& ep,
 {
    lock_guard<recursive_mutex> lg(_vcClientMutex);
    shared_ptr<ViewChangeClWrapper> cw;
-   try {
-      cw = getViewChangeClient(ep);
-      cw->client.startView(viewStartInfo);
-   }
-   catch (const exception& ex) {
-      if (cw.get() != nullptr) {
-         cw->client.close();
+   unsigned tryCnt = 0;
+   while (++tryCnt <= 2) {
+      try {
+         cw = getViewChangeClient(ep);
+         cw->client.startView(viewStartInfo);
+         break;
       }
-      cerr << "startView to endpoint, " << ep
-           << ", failed with exception, " << ex.what() << endl;
+      catch (const exception& ex) {
+         if (cw.get() != nullptr) {
+            cw->client.close();
+         }
+         cerr << "startView to endpoint, " << ep
+              << ", failed with exception, " << ex.what() << endl;
+      }
    }
 }
 
@@ -363,7 +379,7 @@ ReplicaId
 ViewChangeHandler::getNextPrimaryCandidate(ReplicaId currCandidate)
 {
    ReplicaId newPriId = currCandidate + 1;
-   if (newPriId == _replicas.size()) {
+   if (newPriId > _replicas.size()) {
       newPriId = 0;
    }
    return newPriId;

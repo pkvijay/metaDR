@@ -39,7 +39,10 @@ Configurator::deleteInstance()
 Configurator::Configurator() : _replicaId(UINT_MAX),
                                _replicator(nullptr) {}
 
-//TODO: Use regex for below input file parsing.
+/*
+ * TODO: Use regex for below input file parsing.
+ *       Do case insensitive comparison
+ */
 
 // trim the line of beginning and trailing whitespaces
 static string&
@@ -83,6 +86,7 @@ struct UserInput {
     * replica ID.
     */
    std::vector<EndPoint> endPoints;
+   bool recovering;
 };
 
 static void
@@ -131,6 +135,11 @@ parseLine(string& line, UserInput& uip)
          uip.endPoints.push_back(endPoint);
       }
    }
+   else if (key == "Recovering") {
+      if (val == "true") {
+         uip.recovering = true;
+      }
+   }
    else {
       cerr << "Line, '" << line << "' in config file is not valid" << endl;
       throw invalid_argument(line);
@@ -175,8 +184,6 @@ void
 Configurator::bootStrap(const string& cfgFile)
 {
    lock_guard<recursive_mutex> lg(configMutex);
-   // bootstrap should be done only once.
-   assert(_replicator == nullptr);
    UserInput uip;
    parse(cfgFile, uip);
 
@@ -194,11 +201,19 @@ Configurator::bootStrap(const string& cfgFile)
          _replicas[i] = ep;
       }
    }
+
+   assert(!_clientPort.empty());
+   assert(!_replicationPort.empty());
    assert(_replicaId != UINT_MAX);
+
+   // bootstrap should be done only once.
+   assert(_replicator == nullptr);
+
    KvMemStore* kvStore = KvMemStore::getInstance();
    _replicator = new VsReplicator(_replicaId, _replicas,
                                   new InMemOpLogHandler());
    kvStore->registerReplicator(_replicator);
+  _replicator->start(uip.recovering);
 }
 
 ReplicaId

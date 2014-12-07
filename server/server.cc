@@ -13,6 +13,7 @@
 #include "kvStoreImpl.hh"
 #include "vsReplicationImpl.hh"
 #include "viewChangeImpl.hh"
+#include "recoveryImpl.hh"
 
 using namespace std;
 using namespace xdr;
@@ -48,6 +49,7 @@ int main(int argc, const char *argv[])
    KvStoreApi_v1_server kvServer;
    ReplicationApi_v1_server repServer;
    ViewChangeApi_v1_server viewChangeServer;
+   RecoveryApi_v1_server recoveryServer;
 
    rpc_tcp_listener rl1(tcp_listen(clientPort.c_str(), AF_INET));
    rl1.register_service(kvServer);
@@ -55,11 +57,12 @@ int main(int argc, const char *argv[])
    rpc_tcp_listener rl2(tcp_listen(replicationPort.c_str(), AF_INET));
    rl2.register_service(repServer);
    rl2.register_service(viewChangeServer);
+   rl2.register_service(recoveryServer);
 
    thread t1(runListener, ref(rl1));
    cout << "Started kvServer thread, id : " << t1.get_id() << endl;
    thread t2(runListener, ref(rl2));
-   cout << "Started replication threadm id : " << t2.get_id() << endl;
+   cout << "Started replication thread id : " << t2.get_id() << endl;
 
    t1.join();
    t2.join();

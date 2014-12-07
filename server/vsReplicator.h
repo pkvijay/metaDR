@@ -13,6 +13,7 @@
 #include "viewChangeHandler.h"
 #include "vsReplicationClient.h"
 #include "include/clientWrapper.h"
+#include "recoveryHandler.h"
 
 namespace vr {
 
@@ -22,6 +23,8 @@ public:
                 std::unordered_map<ReplicaId, EndPoint>& replicas,
                 IOpLogHandler* logHandler);
    ~VsReplicator();
+
+   void start(bool recovering);
 
    void replicateUpdate(const std::string& key, const std::string& val);
    void replicateDelete(const std::string& key);
@@ -47,6 +50,15 @@ public:
       _viewChangeHandler.processStartView(std::move(viewStartInfo));
    }
 
+   void processRecoveryRequest(std::unique_ptr<RecoveryRequest> recoveryReq) {
+      _recoveryHandler.processRecoveryRequest(std::move(recoveryReq));
+   }
+
+   void processRecoveryResponse(std::unique_ptr<RecoveryResponse> recoveryResp)
+   {
+      _recoveryHandler.processRecoveryResponse(std::move(recoveryResp));
+   }
+
 private:
    void replicate(const PrepInfo& prepInfo);
    void invokePrepare(const EndPoint& ep, const PrepInfo& prepInfo);
@@ -64,6 +76,7 @@ private:
    ReplicaState _replicaState;
    std::recursive_mutex _repMutex;
    ViewChangeHandler _viewChangeHandler;
+   RecoveryHandler _recoveryHandler;
    std::thread _hbt; // heart-beat thread
    std::thread _ppit; // process prepInfo thread
    CQueue<PrepInfo> _prepReqQ;
