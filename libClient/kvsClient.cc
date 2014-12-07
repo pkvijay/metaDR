@@ -23,6 +23,12 @@ getClientError(kvs::Error err)
          return HAS_CHILDREN;
       case KEY_MALFORMED :
          return MALFORMED_KEY;
+      case REPLICA_NOT_PRIMARY :
+         return NOT_PRIMARY_REPLICA;
+      case QUORUM_NOT_REACHED :
+         return FAILED_TO_REACH_QUORUM;
+      case STATUS_NOT_NORMAL :
+         return REPLICA_STATUS_NOT_NORMAL;
       default :
          assert(false);
    }

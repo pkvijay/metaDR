@@ -7,6 +7,7 @@
 #include <set>
 
 #include "server/kvStoreImpl.hh"
+#include "replicaException.h"
 
 using namespace std;
 
@@ -68,6 +69,10 @@ std::unique_ptr<Result>
 KvStoreApi_v1_server::create(std::unique_ptr<KvPair> arg)
 {
    unique_ptr<Result> res(new Result);
+   if (!kvStore->isPrimary()) {
+      res->err() = REPLICA_NOT_PRIMARY;
+      return res;
+   }
    res->err() = checkKeyFormat(arg->key);
    if (res->err() == NONE) {
       size_t lastSlashIndex = pruneKey(arg->key);
@@ -83,9 +88,17 @@ KvStoreApi_v1_server::create(std::unique_ptr<KvPair> arg)
          }
       }
       if (res->err() == NONE) {
-         kvStore->set(arg->key, arg->val);
-         cout << "Key, " << arg->key << ", added with value, "
-              << arg->val << endl;
+         try {
+            kvStore->set(arg->key, arg->val);
+            cout << "Key, " << arg->key << ", added with value, "
+                 << arg->val << endl;
+         }
+         catch (const QuorumNotReached& ex) {
+            res->err() = QUORUM_NOT_REACHED;
+         }
+         catch (const ReplicaStateNotNormal& ex) {
+            res->err() = STATUS_NOT_NORMAL;
+         }
       }
    }
    return res;
@@ -95,6 +108,10 @@ std::unique_ptr<Result>
 KvStoreApi_v1_server::remove(std::unique_ptr<LongString> arg)
 {
    unique_ptr<Result> res(new Result);
+   if (!kvStore->isPrimary()) {
+      res->err() = REPLICA_NOT_PRIMARY;
+      return res;
+   }
    string& key = *arg;
    res->err() = checkKeyFormat(key);
    if (res->err() == NONE) {
@@ -108,8 +125,16 @@ KvStoreApi_v1_server::remove(std::unique_ptr<LongString> arg)
          cerr << "Key, " << key << ", to remove has children" << endl;
       }
       else {
-         kvStore->remove(key);
-         cout << "Key, " << key << ", removed" << endl;
+         try {
+            kvStore->remove(key);
+            cout << "Key, " << key << ", removed" << endl;
+         }
+         catch (const QuorumNotReached& ex) {
+            res->err() = QUORUM_NOT_REACHED;
+         }
+         catch (const ReplicaStateNotNormal& ex) {
+            res->err() = STATUS_NOT_NORMAL;
+         }
       }
    }
    return res;
@@ -119,6 +144,10 @@ std::unique_ptr<Result>
 KvStoreApi_v1_server::set(std::unique_ptr<KvPair> arg)
 {
    unique_ptr<Result> res(new Result);
+   if (!kvStore->isPrimary()) {
+      res->err() = REPLICA_NOT_PRIMARY;
+      return res;
+   }
    res->err() = checkKeyFormat(arg->key);
    if (res->err() == NONE) {
       pruneKey(arg->key);
@@ -127,9 +156,17 @@ KvStoreApi_v1_server::set(std::unique_ptr<KvPair> arg)
          cerr << "Key, " << arg->key << ", is not present" << endl;
       }
       else {
-         kvStore->set(arg->key, arg->val);
-         cout << "Key, " << arg->key << ", set with value, " << arg->val
-              << endl;
+         try {
+            kvStore->set(arg->key, arg->val);
+            cout << "Key, " << arg->key << ", set with value, " << arg->val
+                 << endl;
+         }
+         catch (const QuorumNotReached& ex) {
+            res->err() = QUORUM_NOT_REACHED;
+         }
+         catch (const ReplicaStateNotNormal& ex) {
+            res->err() = STATUS_NOT_NORMAL;
+         }
       }
    }
    return res;
@@ -139,6 +176,10 @@ std::unique_ptr<Result>
 KvStoreApi_v1_server::get(std::unique_ptr<LongString> arg)
 {
    unique_ptr<Result> res(new Result);
+   if (!kvStore->isPrimary()) {
+      res->err() = REPLICA_NOT_PRIMARY;
+      return res;
+   }
    string& key = *arg;
    res->err() = checkKeyFormat(key);
    if (res->err() == NONE) {
@@ -159,6 +200,10 @@ std::unique_ptr<Result>
 KvStoreApi_v1_server::list(std::unique_ptr<LongString> arg)
 {
    unique_ptr<Result> res(new Result);
+   if (!kvStore->isPrimary()) {
+      res->err() = REPLICA_NOT_PRIMARY;
+      return res;
+   }
    string& key = *arg;
    if (key.size() == 1 && key.at(0) == '/') {
       key.clear();

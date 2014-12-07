@@ -12,7 +12,10 @@ namespace kvs {  // kvs => key-value store
       KEY_NOT_PRESENT,
       KEY_HAS_NO_PARENT,
       KEY_HAS_CHILDREN,
-      KEY_MALFORMED
+      KEY_MALFORMED,
+      REPLICA_NOT_PRIMARY,
+      QUORUM_NOT_REACHED,
+      STATUS_NOT_NORMAL
    };
 
    union Result switch(unsigned discriminant) {

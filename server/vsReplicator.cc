@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "vsReplicator.h"
+#include "replicaException.h"
 
 using namespace kvs;
 using namespace std;
@@ -116,8 +117,7 @@ VsReplicator::replicate(const PrepInfo& prepInfo)
 {
    //TODO assert _repMutex is locked
    if (_replicaState.status() != NORMAL) {
-      //TODO: propogate error to client
-      throw runtime_error("status is NOT normal to replicate");
+      throw ReplicaStateNotNormal("status is NOT normal to replicate");
    }
    if (prepInfo.opType == UPDATE) {
       _logHandler->appendUpdate(prepInfo.kvPair, prepInfo.opNum);
@@ -139,8 +139,7 @@ VsReplicator::replicate(const PrepInfo& prepInfo)
          if (status == cv_status::timeout) {
             cerr << "TimedOut to reach quorum for opNum, " << prepInfo.opNum
                  << endl;
-            // TODO: Propogate the error to the client
-            throw runtime_error("Failed to reach quorum");
+            throw QuorumNotReached("Failed to reach quorum");
          }
       }
    }

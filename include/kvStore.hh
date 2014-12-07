@@ -43,6 +43,9 @@ enum Error : std::uint32_t {
   KEY_HAS_NO_PARENT,
   KEY_HAS_CHILDREN,
   KEY_MALFORMED,
+  REPLICA_NOT_PRIMARY,
+  QUORUM_NOT_REACHED,
+  STATUS_NOT_NORMAL,
 };
 } namespace xdr {
 template<> struct xdr_traits<::kvs::Error>
@@ -63,6 +66,12 @@ template<> struct xdr_traits<::kvs::Error>
       return "KEY_HAS_CHILDREN";
     case ::kvs::KEY_MALFORMED:
       return "KEY_MALFORMED";
+    case ::kvs::REPLICA_NOT_PRIMARY:
+      return "REPLICA_NOT_PRIMARY";
+    case ::kvs::QUORUM_NOT_REACHED:
+      return "QUORUM_NOT_REACHED";
+    case ::kvs::STATUS_NOT_NORMAL:
+      return "STATUS_NOT_NORMAL";
     default:
       return nullptr;
     }

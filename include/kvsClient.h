@@ -26,6 +26,12 @@ enum ClientError {
      * The key path violates our formatting rules
      */
     MALFORMED_KEY,
+
+    NOT_PRIMARY_REPLICA,
+
+    FAILED_TO_REACH_QUORUM,
+
+    REPLICA_STATUS_NOT_NORMAL
 };
 
 /*
@@ -46,6 +52,12 @@ public:
              return "HAS CHILDREN";
          case MALFORMED_KEY:
              return "MALFORMED KEY";
+         case NOT_PRIMARY_REPLICA:
+            return "NOT_PRIMARY_REPLICA";
+         case FAILED_TO_REACH_QUORUM:
+            return "FAILED_TO_REACH_QUORUM";
+         case REPLICA_STATUS_NOT_NORMAL:
+            return "REPLICA_STATUS_NOT_NORMAL";
      }
      return "UNKNOWN ERROR CODE";
    }
