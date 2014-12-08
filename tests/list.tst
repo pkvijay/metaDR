@@ -1,3 +1,3 @@
 list /
 list /test
-list /test/w
+list /test/k12
