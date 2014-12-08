@@ -82,7 +82,7 @@ the tests folder. For eg:- to run the create.tst, run
 'shell/shell localhost:4004 tests/create.tst'
 
 For more details on the design of this project, refer to 
-https://github.com/pkvijay/metaDR/blob/master/Design.docx 
+https://github.com/pkvijay/metaDR/blob/master/Design.pdf 
 
 References :
 
