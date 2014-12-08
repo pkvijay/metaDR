@@ -67,6 +67,20 @@ One useful feature of XDRPP is that is can trace and pretty-print RPC calls if
 the following environment variables are set.
 $ export XDR_TRACE_CLIENT=XDR_TRACE_SERVER=1
 
+Testing :
+
+The server executable should be started with the config files which provide the
+configuration and endpoint details. For sample config file, refer to the tests
+folder. For eg: To run a instance of server run 'server/server tests/config-0'.
+Similarly run the other instances of the replica server using the corresponding
+config files. NOTE that in view-stamped replication, the primary is chosen in a
+round-robin fashion. So make sure that the replica-0 in the configuration is
+started first.
+Once all replicas are started, use metaDR shell to run issue some client
+requests. There are some sample test scripts, suffixed with .tst extension in
+the tests folder. For eg:- to run the create.tst, run
+'shell/shell localhost:4004 tests/create.tst'
+
 For more details on the design of this project, refer to 
 https://github.com/pkvijay/metaDR/blob/master/Design.docx 
 
