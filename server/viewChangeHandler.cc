@@ -85,7 +85,11 @@ ViewChangeHandler::changeView()
       }
       newPriId = getNextPrimaryCandidate(newPriId);
    }
-
+   /* 
+    * Set the new priId in the replica state, so that if this view change
+    * attempt fails, the next attempt will be issued to a different primary
+    */
+   _replicaState.priId(newPriId);
    if (newPriId == _replicaId) {
       unique_lock<recursive_mutex> lg(viewChangeResp->rMutex);
       if (!quorumReached(viewChangeResp)) {
@@ -129,6 +133,11 @@ ViewChangeHandler::processStartViewChange(
    if (_replicaState.viewNum() > viewChangeReq->viewNum) {
       return;
    }
+   if (_replicaState.status() == RECOVERING) {
+      cerr << "Replica is in recovering state. Ignoring the startViewChange "
+              "request for viewNum : " << viewChangeReq->viewNum << endl;
+      return;
+   }
    shared_ptr<Response> resp =
       _viewStartReqMap.get(viewChangeReq->viewNum);
    if (quorumReached(resp)) {
@@ -153,6 +162,11 @@ ViewChangeHandler::processDoViewChange(
         << viewChangeInfo->replicaId << ", for new viewNum, "
         << viewChangeInfo->viewNum << endl;
    if (_replicaState.viewNum() > viewChangeInfo->viewNum) {
+      return;
+   }
+   if (_replicaState.status() == RECOVERING) {
+      cerr << "Replica is in recovering state. Ignoring the doViewChange "
+              "request for viewNum : " << viewChangeInfo->viewNum << endl;
       return;
    }
    {
@@ -185,6 +199,11 @@ ViewChangeHandler::processStartView(unique_ptr<ViewStartInfo> viewStartInfo)
    cout << "processStartView called for viewNum : " << viewStartInfo->viewNum
         << endl;
    if (_replicaState.viewNum() > viewStartInfo->viewNum) {
+      return;
+   }
+   if (_replicaState.status() == RECOVERING) {
+      cerr << "Replica is in recovering state. Ignoring the startView "
+              "request for viewNum : " << viewStartInfo->viewNum << endl;
       return;
    }
    ViewInt newViewNum = viewStartInfo->viewNum;
